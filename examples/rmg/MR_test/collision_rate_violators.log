@@ -1,0 +1,79 @@
+*** Collision rate limit violators report ***
+"Violation factor" is the ratio of the rate coefficient to the collision limit rate at the relevant conditions
+
+! Template reaction: Disproportionation
+! Flux pairs: O[C]1OO1(59), CO3(35); O2(3), [O]O(7); 
+! Estimated from node Root_N-4R->H_4CNOS-u1_1R!H->O_2R!H->C_Ext-4CNOS-R_N-Sp-5R!H=4CCNNOOSS_N-4CNOS->C in family Disproportionation.
+! Multiplied by reaction path degeneracy 2.0
+! Ea raised from 293.5 to 294.0 kJ/mol to match endothermicity of reaction.
+O2(3)+O[C]1OO1(59)<=>[O]O(7)+CO3(35)                5.263520e+14 -0.401    70.261   
+
+Direction: reverse
+Violation factor: 1.25
+Violation condition: 1000.0 K, 10.0 bar
+
+
+! Template reaction: Disproportionation
+! Flux pairs: O[C]1OO1(59), CO3(35); O2(3), [O]O(7); 
+! Estimated from node Root_N-4R->H_4CNOS-u1_1R!H->O_2R!H->C_Ext-4CNOS-R_N-Sp-5R!H=4CCNNOOSS_N-4CNOS->C in family Disproportionation.
+! Multiplied by reaction path degeneracy 2.0
+! Ea raised from 293.5 to 294.0 kJ/mol to match endothermicity of reaction.
+O2(3)+O[C]1OO1(59)<=>[O]O(7)+CO3(35)                5.263520e+14 -0.401    70.261   
+
+Direction: reverse
+Violation factor: 3.27
+Violation condition: 2000.0 K, 10.0 bar
+
+
+! Template reaction: Disproportionation
+! Flux pairs: O[C]1OO1(59), CO3(35); [O]O(7), OO(12); 
+! Estimated from node Root_N-4R->H_4CNOS-u1_1R!H->O_2R!H->C_Ext-4CNOS-R_N-Sp-5R!H=4CCNNOOSS_N-4CNOS->C_5R!H-u0_N-5R!H->C in family Disproportionation.
+[O]O(7)+O[C]1OO1(59)<=>OO(12)+CO3(35)               1.210000e+13 0.000     38.244   
+
+Direction: reverse
+Violation factor: 1.99
+Violation condition: 1000.0 K, 10.0 bar
+
+
+! Template reaction: Disproportionation
+! Flux pairs: O[C]1OO1(59), CO3(35); [O]O(7), OO(12); 
+! Estimated from node Root_N-4R->H_4CNOS-u1_1R!H->O_2R!H->C_Ext-4CNOS-R_N-Sp-5R!H=4CCNNOOSS_N-4CNOS->C_5R!H-u0_N-5R!H->C in family Disproportionation.
+[O]O(7)+O[C]1OO1(59)<=>OO(12)+CO3(35)               1.210000e+13 0.000     38.244   
+
+Direction: reverse
+Violation factor: 8.03
+Violation condition: 2000.0 K, 10.0 bar
+
+
+! Template reaction: R_Recombination
+! Flux pairs: [O][C]1OO1(65), [OH](8); [OH](8), [OH](8); 
+! Estimated from node Root_N-1R->H_N-1CNOS->N_1COS->O_Ext-1O-R_N-2R->C_N-3R!H->N_2OS->O in family R_Recombination.
+! Ea raised from 65.3 to 66.1 kJ/mol to match endothermicity of reaction.
+[OH](8)+[O][C]1OO1(65)<=>[OH](8)+CO3(35)            2.000000e+13 0.000     15.809   
+
+Direction: reverse
+Violation factor: 8.49
+Violation condition: 1000.0 K, 10.0 bar
+
+
+! Template reaction: R_Recombination
+! Flux pairs: [O][C]1OO1(65), [OH](8); [OH](8), [OH](8); 
+! Estimated from node Root_N-1R->H_N-1CNOS->N_1COS->O_Ext-1O-R_N-2R->C_N-3R!H->N_2OS->O in family R_Recombination.
+! Ea raised from 65.3 to 66.1 kJ/mol to match endothermicity of reaction.
+[OH](8)+[O][C]1OO1(65)<=>[OH](8)+CO3(35)            2.000000e+13 0.000     15.809   
+
+Direction: reverse
+Violation factor: 20.05
+Violation condition: 2000.0 K, 10.0 bar
+
+
+! Template reaction: Disproportionation
+! Flux pairs: O[C]1OO1(59), CO3(35); [O][C]1OO1(65), O[C]1OO1(59); 
+! Estimated from node Root_N-4R->H_4CNOS-u1_1R!H->O_2R!H->C_Ext-4CNOS-R_N-Sp-5R!H=4CCNNOOSS_Ext-5R!H-R in family Disproportionation.
+[O][C]1OO1(65)+O[C]1OO1(59)<=>CO3(35)+O[C]1OO1(59)  1.810000e+13 0.000     22.632   
+
+Direction: reverse
+Violation factor: 2.73
+Violation condition: 2000.0 K, 10.0 bar
+
+
