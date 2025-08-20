@@ -712,13 +712,23 @@ class BAC:
         # more about less certain molecules.
         x = make_feature_mat(features)
         y = self.dataset.ref_data - self.dataset.calc_data
-        weights = np.diag(self.dataset.weight)
-        w = np.linalg.solve(x.T @ weights @ x, x.T @ weights @ y)
+        #weights = np.diag(self.dataset.weight)
+        #w = np.linalg.solve(x.T @ weights @ x, x.T @ weights @ y)
+        ws = np.sqrt(self.dataset.weight)
+        xw = x * ws[:, None]
+        yw = y * ws
+        w, *_ = np.linalg.lstsq(xw, yw, rcond=None)
         ypred = x @ w
 
-        ci, covariance = get_confidence_intervals(x, y, ypred, weights=weights)
-        self.confidence_intervals = dict(zip(feature_keys, ci))  # Parameter estimates are w +/- ci
-        self.correlation = _covariance_to_correlation(covariance)
+        print("The number of data points used for fitting:", len(y))
+
+        #ci, covariance = get_confidence_intervals(x, y, ypred, weights=weights)
+        #self.confidence_intervals = dict(zip(feature_keys, ci))  # Parameter estimates are w +/- ci
+        #self.correlation = _covariance_to_correlation(covariance)
+
+        # placeholder
+        self.confidence_intervals = dict(zip(feature_keys, [0.0] * len(feature_keys)))
+        self.correlation = np.zeros((len(feature_keys), len(feature_keys)))
 
         self.dataset.bac_data = self.dataset.calc_data + ypred
         self.bacs = {fk: wi for fk, wi in zip(feature_keys, w)}

@@ -481,7 +481,7 @@ class ReferenceDatabase(object):
                 molecule = Molecule().from_adjacency_list(ref_spcs.adjacency_list, raise_atomtype_exception=False,
                                                           raise_charge_exception=False)
                 if ignore_incomplete:
-                    if (len(ref_spcs.calculated_data) == 0) or (len(ref_spcs.reference_data) == 0):
+                    if (len(ref_spcs.calculated_data) == 0) or (ref_spcs.thermo_data is None):
                         logging.warning(f'Molecule {ref_spcs.smiles} from reference set `{set_name}` does not have any '
                                         f'reference data and/or calculated data. This entry will not be added')
                         continue

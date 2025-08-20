@@ -170,7 +170,8 @@ class BACDatapoint:
     def ref_data(self) -> float:
         """Get reference enthalpy in kcal/mol"""
         if self._ref_data is None:
-            self._ref_data = self.spc.get_reference_enthalpy().h298.value_si / 4184
+            #print(f"thermo loaded for species {self.spc.label}")
+            self._ref_data = self.spc.thermo_data.H298.value_si / 4184
         return self._ref_data
 
     @property
