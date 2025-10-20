@@ -365,9 +365,9 @@ def extract_dataset(ref_database: ReferenceDatabase,
     """
     species = ref_database.extract_level_of_theory(level_of_theory, as_error_canceling_species=False)
 
-    if idxs is not None:
-        idxs = {idxs} if isinstance(idxs, int) else set(idxs)
-        species = [spc for spc in species if spc.index in idxs]
+    if idxs is not None: # write a code for idx are inchi (temp)
+        inchi_list = {idxs} if isinstance(idxs, str) else set(idxs)
+        species = [spc for spc in species if spc.inchi in inchi_list]
     if exclude_idxs is not None:
         exclude_idxs = {exclude_idxs} if isinstance(exclude_idxs, int) else set(exclude_idxs)
         species = [spc for spc in species if spc.index not in exclude_idxs]

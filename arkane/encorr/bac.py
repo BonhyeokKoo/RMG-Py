@@ -646,12 +646,15 @@ class BAC:
             self._fit_melius(**kwargs)
         elif self.bac_type == 'p':
             logging.info(f'Fitting Petersson-type BACs for {self.level_of_theory}...')
-            self._fit_petersson()
+            bac_values = self._fit_petersson()
 
         stats_before = self.dataset.calculate_stats()
         stats_after = self.dataset.calculate_stats(for_bac_data=True)
         logging.info(f'Training RMSE/MAE before fitting: {stats_before.rmse:.2f}/{stats_before.mae:.2f} kcal/mol')
         logging.info(f'Training RMSE/MAE after fitting: {stats_after.rmse:.2f}/{stats_after.mae:.2f} kcal/mol')
+
+        if bac_values is not None:
+            return bac_values
 
     def test(self,
              species: List[ReferenceSpecies] = None,
@@ -722,6 +725,9 @@ class BAC:
 
         print("The number of data points used for fitting:", len(y))
 
+        print(f"training rmse: {np.sqrt(np.mean((y - ypred)**2))}")
+        print(f"training mae: {np.mean(np.abs(y - ypred))}")
+
         #ci, covariance = get_confidence_intervals(x, y, ypred, weights=weights)
         #self.confidence_intervals = dict(zip(feature_keys, ci))  # Parameter estimates are w +/- ci
         #self.correlation = _covariance_to_correlation(covariance)
@@ -732,6 +738,10 @@ class BAC:
 
         self.dataset.bac_data = self.dataset.calc_data + ypred
         self.bacs = {fk: wi for fk, wi in zip(feature_keys, w)}
+        print(f"bacs: {self.bacs}")
+        print(f"number of bonds: {len(self.bacs)}")
+
+        return self.bacs
 
     def _fit_melius(self,
                     fit_mol_corr: bool = True,
@@ -825,14 +835,17 @@ class BAC:
         res = min(results, key=lambda r: r.cost)
         w = res.x
 
+        print(f"w: {w}")
+        print(f"bac_data: {get_bac_data(w)}")
+
         self.dataset.bac_data = get_bac_data(w)
         self.bacs = get_params(w)
 
         # Estimate parameter covariance matrix using Jacobian
-        ci, covariance = get_confidence_intervals(res.jac, self.dataset.ref_data, self.dataset.bac_data,
-                                                  weights=weights)
-        self.confidence_intervals = get_params(ci)
-        self.correlation = _covariance_to_correlation(covariance)
+        #ci, covariance = get_confidence_intervals(res.jac, self.dataset.ref_data, self.dataset.bac_data,
+        #                                          weights=weights)
+        #self.confidence_intervals = get_params(ci)
+        #self.correlation = _covariance_to_correlation(covariance)
 
     def write_to_database(self, overwrite: bool = False, alternate_path: str = None):
         """
@@ -1010,6 +1023,12 @@ class CrossVal:
         self.dataset = None  # Complete dataset containing cross-validation estimates for each data point
         self.bacs = None  # List of BAC instances, one for each fold
 
+    def get_dataset(self, db_names = 'main', idxs = None, exclude_idxs = None, exclude_elements = None, charge = 'all', multiplicity = 'all'):
+        database_key = BAC.load_database(names=db_names)
+        self.dataset = extract_dataset(BAC.ref_databases[database_key], self.level_of_theory,
+                                    idxs=idxs, exclude_idxs=exclude_idxs,
+                                    exclude_elements=exclude_elements, charge=charge, multiplicity=multiplicity)
+        return self.dataset
 
     def fit(self,
             db_names: Union[str, List[str]] = 'main',
@@ -1018,6 +1037,7 @@ class CrossVal:
             exclude_elements: Union[Sequence[str], Set[str], str] = None,
             charge: Union[Sequence[Union[str, int]], Set[Union[str, int]], str, int] = 'all',
             multiplicity: Union[Sequence[int], Set[int], int, str] = 'all',
+            given_folds: List[Tuple[List[int], List[int]]] = None,
             **kwargs):
         """
         Run cross-validation.
@@ -1042,14 +1062,20 @@ class CrossVal:
             folds = KFold(n_splits=len(self.dataset)).split(self.dataset)
         else:
             logging.info(f'Starting {self.n_folds}-fold cross-validation for {self.level_of_theory}')
-            folds = KFold(n_splits=self.n_folds).split(self.dataset)
+            if given_folds is None:
+                folds = KFold(n_splits=self.n_folds).split(self.dataset)
+            else:
+                folds = given_folds
+
+        bac_list = []
         for i, (train, test) in enumerate(folds):
             logging.info(f'\nFold {i}')
-            train_idxs = [self.dataset[i].spc.index for i in train]
+            train_idxs = [self.dataset[i].spc.inchi for i in train] # We don't have index right now, just inchi instead
             test_data = BACDataset([self.dataset[i] for i in test])
             logging.info(f'Testing on species {", ".join(str(d.spc.index) for d in test_data)}')
             bac = BAC(self.level_of_theory, self.bac_type)
-            bac.fit(db_names=db_names, idxs=train_idxs, **kwargs)
+            bac_values = bac.fit(db_names=db_names, idxs=train_idxs, **kwargs)
+            bac_list.append(bac_values)
             bac.test(dataset=test_data)  # Stores predictions in each BACDataset
             self.bacs.append(bac)
             test_data_results.append(test_data)
@@ -1076,6 +1102,7 @@ class CrossVal:
         logging.info(f'Testing MAE after fitting: '
                     f'{mae_after:.2f} kcal/mol')
 
+        return test_data_results, bac_list
 
 def get_confidence_intervals(x: np.ndarray,
                              y: np.ndarray,
