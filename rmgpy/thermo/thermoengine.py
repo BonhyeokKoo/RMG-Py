@@ -47,6 +47,7 @@ def process_thermo_data(spc, thermo0, thermo_class=NASA, solvent_name=''):
     Resulting thermo is returned.
     """
     thermo = None
+    Tdep = "linear"
 
     # Always convert to Wilhoit so we can compute E0
     if isinstance(thermo0, Wilhoit):
@@ -61,16 +62,68 @@ def process_thermo_data(spc, thermo0, thermo_class=NASA, solvent_name=''):
     if not solvent_name or solvation_database is None:
         logging.debug('Solvent database or solvent_name not found. Solvent effect was not utilized')
         solvent_data = None
-    else:
+    else:  # Solvation database is available
         solvent_data = solvation_database.get_solvent_data(solvent_name)
-    if solvent_data and not "Liquid thermo library" in thermo0.comment:
-        solvation_database = get_db('solvation')
-        solute_data = solvation_database.get_solute_data(spc)
-        solvation_correction = solvation_database.get_solvation_correction(solute_data, solvent_data)
-        # correction is added to the entropy and enthalpy
-        wilhoit.S0.value_si = (wilhoit.S0.value_si + solvation_correction.entropy)
-        wilhoit.H0.value_si = (wilhoit.H0.value_si + solvation_correction.enthalpy)
-        wilhoit.comment += f' + Solvation correction (H={solvation_correction.enthalpy/1e3:+.0f}kJ/mol;S={solvation_correction.entropy:+.0f}J/mol/K) with {solvent_name} as solvent and solute estimated using {solute_data.comment}'
+
+        # Get Tdep from the input file
+        from rmgpy.rmg.input import get_input
+        try:
+            Tdep = get_input("solvation_temperature_dependence")
+        except Exception:
+            pass
+
+        if "Liquid thermo library" not in thermo0.comment:
+            try:
+                external_estimators = get_input('external_estimators')
+            except Exception:
+                logging.debug('external_estimators could not be found.')
+                external_estimators = None
+
+            thermo_data = {}  # Stores predicted properties from external estimators
+            properties = ["dGsolv", "dHsolv"]
+            solvation_correction_attributes = {"dGsolv": "gibbs", "dHsolv": "enthalpy"}
+
+            # Predict with external estimators
+            if external_estimators is not None:
+                comment = "External estimator estimation:"
+                for estimator in external_estimators:
+                    if any(prop in estimator.predicted_properties for prop in properties):
+                        preds, reason = estimator.make_estimate(spc)
+                        if preds is None:
+                            logging.debug(reason)
+                        else:
+                            for prop, value in preds:
+                                if prop not in thermo_data:
+                                    thermo_data[prop] = value
+                                    comment += f" {prop} estimated by {estimator.name}"
+
+                        if all(prop in thermo_data for prop in properties):
+                            break
+
+            # Predict with Abraham parameters for properties missing from external estimators
+            missing_properties = [prop for prop in properties if prop not in thermo_data]
+            if missing_properties:
+                solute_data = solvation_database.get_solute_data(spc)
+                solvation_correction = solvation_database.get_solvation_correction(solute_data, solvent_data)
+
+                for prop in missing_properties:
+                    thermo_data[prop] = getattr(solvation_correction, solvation_correction_attributes[prop])
+                    comment += f" {prop} estimated by Abraham parameters"
+
+            dGsolv = thermo_data["dGsolv"]
+            dHsolv = thermo_data["dHsolv"]
+            dSsolv = (dHsolv - dGsolv) / 298.0
+
+            if Tdep == "linear":
+                wilhoit.S0.value_si = (wilhoit.S0.value_si + dSsolv)
+                wilhoit.H0.value_si = (wilhoit.H0.value_si + dHsolv)
+                wilhoit.comment += f' + Solvation correction (H={dHsolv/1e3:+.0f}kJ/mol;S={dSsolv:+.0f}J/mol/K) with {solvent_name} as solvent ({comment.rstrip("; ")})'
+
+            elif Tdep == "yunsie":
+                thermo_tdep_nasa = solvation_database.get_NASA_from_Yunsie(dGsolv, dHsolv, dSsolv, solvent_data, wilhoit)
+                wilhoit = thermo_tdep_nasa.to_wilhoit()
+            else:
+                logging.debug('Tdep is not linear or yunsie. Please check the input file. Solvent effect will not be applied.')
 
     # Compute E0 by extrapolation to 0 K
     if spc.conformer is None:
@@ -89,7 +142,12 @@ def process_thermo_data(spc, thermo0, thermo_class=NASA, solvent_name=''):
                 if thermo.E0 is None:
                     thermo.E0 = wilhoit.E0
             else:
-                thermo = wilhoit.to_nasa(Tmin=100.0, Tmax=5000.0, Tint=1000.0)
+                if Tdep == "yunsie":
+                    thermo = thermo_tdep_nasa
+                    if thermo.E0 is None:
+                        thermo.E0 = wilhoit.E0
+                else:
+                    thermo = wilhoit.to_nasa(Tmin=100.0, Tmax=5000.0, Tint=1000.0)
         else:
             # gas phase with species matching thermo library keep the NASA from library or convert if group additivity
             if "Thermo library" in thermo0.comment and isinstance(thermo0, NASA):

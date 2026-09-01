@@ -2432,6 +2432,64 @@ class SolvationDatabase(object):
 
         return kfactor_parameters
 
+    def get_NASA_from_Yunsie(self, dGsolv, dHsolv, dSsolv, solvent_data, wilhoit):
+        """Return liquid-phase NASA thermo fitted to the Yunsie model."""
+        from scipy.interpolate import CubicSpline
+        from rmgpy.thermo import ThermoData
+
+        solvent_name = solvent_data.name_in_coolprop
+        Tc = get_critical_temperature(solvent_name)
+        Tmax = 0.999 * Tc
+        if Tmax <= 298.0:
+            raise InputError(
+                f"The Yunsie model requires a solvent critical temperature above 298 K; "
+                f"got {Tc:g} K for {solvent_name}."
+            )
+
+        T_list = np.linspace(298.0, Tmax, 20)
+        kfactor_parameters = self.get_Kfactor_parameters(
+            dGsolv, dHsolv, dSsolv, solvent_name
+        )
+
+        dGsolv_list = []
+        G_list = []
+        for T in T_list:
+            delG, _, _ = self.get_T_dep_solvation_energy_from_input_298(dGsolv, dHsolv, dSsolv, solvent_name, T)
+            dGsolv_list.append(delG)
+
+            G = wilhoit.get_free_energy(T)
+            G_list.append(G)
+        corrected_G_list = np.array(G_list) + np.array(dGsolv_list)
+
+        # Cp(T) = -T * d2G(T)/dT2
+        gibbs_spline = CubicSpline(T_list, corrected_G_list)
+        Cp_list = -T_list * gibbs_spline(T_list, 2)
+
+        H298 = wilhoit.get_enthalpy(298.0) + dHsolv
+        S298 = wilhoit.get_entropy(298.0) + dSsolv
+        thermo_data = ThermoData(
+            Tdata=(T_list, "K"),
+            Cpdata=(Cp_list, "J/(mol*K)"),
+            H298=(H298, "J/mol"),
+            S298=(S298, "J/(mol*K)"),
+            Cp0=(wilhoit.Cp0.value_si, "J/(mol*K)"),
+            CpInf=(wilhoit.CpInf.value_si, "J/(mol*K)"),
+            Tmin=(T_list[0], "K"),
+            Tmax=(T_list[-1], "K"),
+            comment=f"{wilhoit.comment} + temperature-dependent solvation correction using the Yunsie model",
+        )
+
+        Tint = kfactor_parameters.T_transition
+        if not T_list[0] < Tint < T_list[-1]:
+            Tint = 0.5 * (T_list[0] + T_list[-1])
+
+        return thermo_data.to_nasa(
+            Tmin=T_list[0],
+            Tmax=T_list[-1],
+            Tint=Tint,
+            fixedTint=True,
+        )
+
     def check_solvent_in_initial_species(self, rmg, solvent_structure):
         """
         Given the instance of RMG class and the solvent_structure, it checks whether the solvent is listed as one

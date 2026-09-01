@@ -30,7 +30,7 @@
 import logging
 import os
 from copy import deepcopy
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 
@@ -1218,7 +1218,7 @@ def simulator(atol, rtol, sens_atol=1e-6, sens_rtol=1e-4):
     rmg.simulator_settings_list.append(SimulatorSettings(atol, rtol, sens_atol, sens_rtol))
 
 
-def solvation(solvent,solventData=None):
+def solvation(solvent, solventData=None, temperatureDependence="linear"):
     # If solvation module in input file, set the RMG solvent variable
     #either a string corresponding to the solvent database or a olvent object
     if isinstance(solvent, str):
@@ -1231,6 +1231,9 @@ def solvation(solvent,solventData=None):
     else:
         raise InputError("Solvent not specified properly, solventData must be None or SolventData object")
 
+    if not isinstance(temperatureDependence, str) or temperatureDependence.lower() not in ["linear", "yunsie"]:
+        raise InputError("temperatureDependence must be either 'linear' or 'yunsie'")
+    rmg.solvation_temperature_dependence = temperatureDependence.lower()
 
 def model(toleranceMoveToCore=None, toleranceRadMoveToCore=np.inf,
           toleranceMoveEdgeReactionToCore=np.inf, toleranceKeepInEdge=0.0,
@@ -1323,8 +1326,8 @@ def ml_estimator(*args, **kwargs):
     raise RuntimeError(error_message)
 
     
-def external_estimator(path, kwargs: dict[str,  Any] | None = None):
-    from rmg.external.handler import ExternalEstimatorHandler
+def external_estimator(path, kwargs: Optional[dict[str, Any]] = None):
+    from rmgpy.external.handler import ExternalEstimatorHandler
     if not getattr(rmg, 'external_estimators', None):
         rmg.external_estimators = []
     rmg.external_estimators.append(ExternalEstimatorHandler(path, kwargs))
@@ -2009,6 +2012,8 @@ def get_input(name):
             return rmg.ml_estimator, rmg.ml_settings
         elif name == 'external_estimators':
             return rmg.external_estimators
+        elif name == 'solvation_temperature_dependence':
+            return rmg.solvation_temperature_dependence
         elif name == 'thermo_central_database':
             return rmg.thermo_central_database
         else:
