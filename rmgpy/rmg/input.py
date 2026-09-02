@@ -1231,9 +1231,10 @@ def solvation(solvent, solventData=None, temperatureDependence="linear"):
     else:
         raise InputError("Solvent not specified properly, solventData must be None or SolventData object")
 
-    if not isinstance(temperatureDependence, str) or temperatureDependence.lower() not in ["linear", "yunsie"]:
-        raise InputError("temperatureDependence must be either 'linear' or 'yunsie'")
-    rmg.solvation_temperature_dependence = temperatureDependence.lower()
+    if temperatureDependence in ["linear", "yunsie"]:
+        rmg.solvation_temperature_dependence = temperatureDependence
+    else:
+        raise InputError("temperatureDependence must be either 'Linear' or 'Yunsie'")
 
 def model(toleranceMoveToCore=None, toleranceRadMoveToCore=np.inf,
           toleranceMoveEdgeReactionToCore=np.inf, toleranceKeepInEdge=0.0,
