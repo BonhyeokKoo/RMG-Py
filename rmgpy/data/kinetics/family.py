@@ -43,6 +43,7 @@ from collections import OrderedDict
 from copy import deepcopy
 
 import numpy as np
+from rdkit import Chem
 from scipy.optimize import OptimizeWarning
 from sklearn.model_selection import KFold
 
@@ -61,6 +62,7 @@ from rmgpy.kinetics import Arrhenius, SurfaceArrhenius, SurfaceArrheniusBEP, Sti
                            ArrheniusChargeTransferBM, KineticsModel, Marcus
 from rmgpy.kinetics.uncertainties import RateUncertainty, rank_accuracy_map
 from rmgpy.molecule import Bond, GroupBond, Group, Molecule
+from rmgpy.molecule import converter
 from rmgpy.molecule.atomtype import ATOMTYPES
 from rmgpy.reaction import Reaction, same_species_lists
 from rmgpy.species import Species
@@ -70,6 +72,19 @@ import rmgpy.constants as constants
 from rmgpy.data.solvation import SoluteData, add_solute_data, SoluteTSData, to_soluteTSdata
 
 ################################################################################
+
+KINETIC_SOLVENT_CORRECTION_MARKER = 'Kinetic solvent correction ('
+
+
+def _mapped_side(molecules, map_numbers):
+    """Atom-mapped, explicit-H SMILES of `molecules` joined by '.'"""
+    smiles = []
+    for molecule in molecules:
+        rdmol, rd_indices = converter.to_rdkit_mol(molecule, remove_h=False, return_mapping=True, save_order=True)
+        for atom, index in rd_indices.items():
+            rdmol.GetAtomWithIdx(index).SetAtomMapNum(map_numbers[atom.id])
+        smiles.append(Chem.MolToSmiles(rdmol))
+    return '.'.join(smiles)
 
 
 class TemplateReaction(Reaction):
@@ -295,6 +310,56 @@ class TemplateReaction(Reaction):
         self.kinetics.Ea.value_si += dH
         self.kinetics.A.value_si *= dA
         self.kinetics.comment += "\nsolvation correction raised barrier by {0} kcal/mol and prefactor by factor of {1}".format(dH/4184.0,dA)
+
+    def get_atom_mapped_smiles(self):
+        """
+        Return the fully atom-mapped, explicit-H reaction SMILES of this reaction, written in the
+        direction of its kinetics. Raises ActionError if the family cannot map it.
+        """
+        from rmgpy.data.rmg import get_db
+        return get_db('kinetics').families[self.family].get_atom_mapped_smiles(self.reactants, self.products)
+
+    def apply_external_solvent_correction(self, solvent):
+        """
+        Correct the Arrhenius kinetics for the kinetic solvent effect in `solvent` using external
+        estimators, the same way the thermo solvation correction uses them: estimators are tried in
+        the order they were configured, and for each of ``ddGsolv`` and ``ddHsolv`` (J/mol at 298 K,
+        transition state minus reactants, for the reaction as written) the first successful estimate
+        is kept. A later estimator never overwrites a property but may supply a missing one. The
+        kinetics change only if both are obtained: ``Ea += ddHsolv`` and ``A *= exp(ddSsolv / R)``
+        with ``ddSsolv = (ddHsolv - ddGsolv) / 298 K``. Surface and charge-transfer reactions are
+        skipped, and a reaction is corrected at most once.
+        """
+        if (not isinstance(self.kinetics, Arrhenius) or self.is_surface_reaction()
+                or self.is_charge_transfer_reaction()
+                or KINETIC_SOLVENT_CORRECTION_MARKER in self.kinetics.comment):
+            return
+        from rmgpy.rmg.input import get_input
+        try:
+            external_estimators = get_input('external_estimators')
+        except Exception:
+            return  # no external estimators configured
+        values, sources = {}, {}
+        for estimator in external_estimators:
+            for prop in ('ddGsolv', 'ddHsolv'):
+                if prop not in estimator.properties_estimated or prop in values:
+                    continue
+                value, reason = estimator.make_estimate(self, prop)
+                if value is None:
+                    logging.debug(reason)
+                else:
+                    values[prop] = value
+                    sources[prop] = estimator.name
+        if len(values) < 2:
+            return
+        ddG, ddH = values['ddGsolv'], values['ddHsolv']
+        ddS = (ddH - ddG) / 298.0
+        self.kinetics.Ea.value_si += ddH
+        self.kinetics.A.value_si *= np.exp(ddS / constants.R)
+        self.kinetics.comment += (f'\n{KINETIC_SOLVENT_CORRECTION_MARKER}dH={ddH / 1e3:+.2f}kJ/mol;'
+                                  f'dS={ddS:+.2f}J/mol/K) with {solvent} as solvent '
+                                  f'(ddGsolv estimated by {sources["ddGsolv"]}; '
+                                  f'ddHsolv estimated by {sources["ddHsolv"]})')
 
 ################################################################################
 
@@ -2770,6 +2835,38 @@ class KineticsFamily(Database):
             raise ActionError('Something wrong with products that RMG cannot find a match!')
 
         return None, None
+
+    def get_atom_mapped_smiles(self, reactants, products):
+        """
+        Return a fully atom-mapped reaction SMILES (explicit hydrogens, every atom numbered) for
+        `reactants` -> `products` (lists of :class:`Species`), written in that direction. The family
+        recipe carries atom identity across the reaction. If the forward template cannot produce the
+        products, the reverse orientation is mapped. Raises ActionError if neither works.
+        """
+        for start, end in ((reactants, products), (products, reactants)):
+            for start_combo in itertools.product(*[spc.molecule for spc in start]):
+                for end_combo in itertools.product(*[spc.molecule for spc in end]):
+                    start_mols = [mol.copy(deep=True) for mol in start_combo]
+                    for mol in start_mols:
+                        mol.assign_atom_ids()
+                    try:
+                        labeled_start, labeled_end = self.get_labeled_reactants_and_products(
+                            start_mols, list(end_combo), relabel_atoms=False)
+                    except (ActionError, ValueError):
+                        continue
+                    if labeled_start is None:
+                        continue
+                    start_ids = [atom.id for mol in labeled_start for atom in mol.atoms]
+                    end_ids = [atom.id for mol in labeled_end for atom in mol.atoms]
+                    if len(set(start_ids)) != len(start_ids) or sorted(start_ids) != sorted(end_ids):
+                        continue  # ids wrap at 2**15 (molecule.py), so check rather than assume
+                    map_numbers = {atom_id: i + 1 for i, atom_id in enumerate(start_ids)}
+                    sides = [_mapped_side(labeled_start, map_numbers), _mapped_side(labeled_end, map_numbers)]
+                    if start is products:
+                        sides.reverse()
+                    return '>>'.join(sides)
+        raise ActionError(f'Could not atom-map {" + ".join(str(s) for s in reactants)} -> '
+                          f'{" + ".join(str(s) for s in products)} with family {self.label}')
 
     def add_atom_labels_for_reaction(self, reaction, output_with_resonance=True, save_order=False, relabel_atoms=False):
         """

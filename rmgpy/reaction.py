@@ -1091,6 +1091,8 @@ class Reaction:
             if isinstance(self.kinetics, (Arrhenius, StickingCoefficient, ArrheniusChargeTransfer, SurfaceChargeTransfer)):  # SurfaceArrhenius is a subclass of Arrhenius
                 if apply_solvation_correction and solvent and self.kinetics.solute:
                     self.apply_solvent_correction(solvent)
+                elif apply_solvation_correction and solvent:
+                    self.apply_external_solvent_correction(solvent)
                 Ea = self.kinetics.Ea.value_si
                 if H0 >= 0 and Ea < H0:
                     self.kinetics.Ea.value_si = H0
@@ -1123,6 +1125,14 @@ class Reaction:
         apply kinetic solvent correction
         """
         return NotImplementedError("solvent correction is particular to library, depository and template reactions")
+
+    def apply_external_solvent_correction(self, solvent):
+        """
+        Apply a kinetic solvent correction from external estimators when the kinetics carry no
+        transition-state solute data. Only TemplateReaction implements it; other reaction types are
+        left unchanged.
+        """
+        pass
 
     def reverse_arrhenius_rate(self, k_forward, reverse_units, Tmin=None, Tmax=None):
         """
