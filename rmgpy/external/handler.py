@@ -31,14 +31,14 @@ import importlib.util
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 
 logger = logging.getLogger(__name__)
 
 
 class ExternalEstimatorHandler:
-    def __init__(self, path: str, kwargs: dict[str, Any] | None = None):
+    def __init__(self, path: str, kwargs: Optional[dict[str, Any]] = None):
         self.path = Path(path).resolve()
         self.kwargs = kwargs or {}
 
@@ -58,6 +58,7 @@ class ExternalEstimatorHandler:
 
         self.name: str = metadata["name"]
         self.properties_estimated: list[str] = metadata["properties_estimated"]
+        self.predicted_properties = self.properties_estimated
 
         assert isinstance(self.name, str), f"name must be a string, got type {type(self.name)}"
         assert isinstance(self.properties_estimated, list), f"properties_estimated must be a string, got type {type(self.properties_estimated)}"
@@ -87,7 +88,7 @@ class ExternalEstimatorHandler:
         self.estimator = module.load(str(self.path), self.kwargs)
         self._estimate_fn = module.estimate
 
-    def make_estimate(self, species, property_name: str) -> tuple[Any | None, str]:
+    def make_estimate(self, species, property_name: str) -> tuple[Optional[Any], str]:
         try:
             result = self._estimate_fn(species, self.estimator, property_name)
         except Exception as e:

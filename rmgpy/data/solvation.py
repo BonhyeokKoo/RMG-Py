@@ -2432,6 +2432,77 @@ class SolvationDatabase(object):
 
         return kfactor_parameters
 
+    def get_NASA_from_Yunsie(self, dGsolv, dHsolv, dSsolv, solvent_data, wilhoit):
+        """Return liquid-phase NASA thermo by fitting G/(RT) to the Yunsie model."""
+        from rmgpy.thermo import NASA, NASAPolynomial
+
+        solvent_name = solvent_data.name_in_coolprop
+        Tc = get_critical_temperature(solvent_name)
+        Tmax = 0.999 * Tc
+        if Tmax <= 298.0:
+            raise InputError(
+                f"The Yunsie model requires a solvent critical temperature above 298 K; "
+                f"got {Tc:g} K for {solvent_name}."
+            )
+
+        T_list = np.linspace(298.0, Tmax, 20)
+        kfactor_parameters = self.get_Kfactor_parameters(
+            dGsolv, dHsolv, dSsolv, solvent_name
+        )
+        liquid_G_list = []
+        for T in T_list:
+            delG, _, _ = self.get_T_dep_solvation_energy_from_input_298(dGsolv, dHsolv, dSsolv, solvent_name, T)
+            liquid_G_list.append(wilhoit.get_free_energy(T) + delG)
+
+        # NASA-7 Gibbs basis:
+        # G/(RT) = a1(1-ln(T)) - a2*T/2 - a3*T^2/6 - a4*T^3/12
+        #          - a5*T^4/20 + a6/T - a7
+        design_matrix = np.column_stack((
+            1.0 - np.log(T_list),
+            -T_list / 2.0,
+            -(T_list ** 2) / 6.0,
+            -(T_list ** 3) / 12.0,
+            -(T_list ** 4) / 20.0,
+            1.0 / T_list,
+            -np.ones_like(T_list),
+        ))
+        target = np.asarray(liquid_G_list) / (constants.R * T_list)
+
+        # Scale columns before the least-squares solve because the NASA basis
+        # spans powers from 1/T through T^4 over the fitting interval.
+        column_scale = np.linalg.norm(design_matrix, axis=0)
+        scaled_coeffs, _, rank, _ = np.linalg.lstsq(
+            design_matrix / column_scale, target, rcond=None
+        )
+        if rank < design_matrix.shape[1]:
+            raise InputError("The NASA-7 Gibbs fitting matrix is rank deficient.")
+        coeffs = scaled_coeffs / column_scale
+
+        Tint = kfactor_parameters.T_transition
+        if not T_list[0] < Tint < T_list[-1]:
+            Tint = 0.5 * (T_list[0] + T_list[-1])
+
+        # Chemkin requires exactly two NASA polynomials. Use the same fitted
+        # coefficients on both sides of Tint so this remains a single fit.
+        nasa_low = NASAPolynomial(
+            coeffs=coeffs,
+            Tmin=(T_list[0], "K"),
+            Tmax=(Tint, "K"),
+        )
+        nasa_high = NASAPolynomial(
+            coeffs=coeffs,
+            Tmin=(Tint, "K"),
+            Tmax=(T_list[-1], "K"),
+        )
+        return NASA(
+            polynomials=[nasa_low, nasa_high],
+            Cp0=(wilhoit.Cp0.value_si, "J/(mol*K)"),
+            CpInf=(wilhoit.CpInf.value_si, "J/(mol*K)"),
+            Tmin=(T_list[0], "K"),
+            Tmax=(T_list[-1], "K"),
+            comment=f"{wilhoit.comment} + temperature-dependent solvation correction using a direct Yunsie Gibbs fit",
+        )
+
     def check_solvent_in_initial_species(self, rmg, solvent_structure):
         """
         Given the instance of RMG class and the solvent_structure, it checks whether the solvent is listed as one
